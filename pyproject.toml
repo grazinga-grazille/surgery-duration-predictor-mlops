@@ -12,13 +12,16 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
-[project.optional-dependencies]
-# Linting + testing. This is what CI installs (fast, no notebook stack).
+[dependency-groups]
+# Linting + testing. `uv sync` installs these by default, so a fresh clone can
+# run the tests immediately. `uv sync --no-dev` leaves them out, which is what
+# you want when building a production image.
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
 ]
-# For running the example notebook locally. Install with: uv sync --all-extras
+# The notebook stack is heavy and CI doesn't need it, so it sits in its own
+# group. Install it with: uv sync --group notebook
 notebook = [
     "jupyter>=1.0",
 ]

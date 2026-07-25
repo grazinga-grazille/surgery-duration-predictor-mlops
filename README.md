@@ -1,7 +1,7 @@
 # ML Project Template for Data Scientists
 
 A clean, production-minded starting point for any machine learning project. Fork
-it, rename one package, and you have the structure most MLOps-mature teams have
+it, rename the package, and you have the structure most MLOps-mature teams have
 converged on, already wired up with `uv`, tests, and CI.
 
 This is the companion template to **Part 1** of the
@@ -25,9 +25,14 @@ so you drop in your own project.
 ## How to use it
 
 1. Click **Use this template** (or fork it) to start your own project.
-2. Rename the `src/my_ml_project/` package to your project's name, and update the
-   matching line in `pyproject.toml` (`[tool.hatch.build.targets.wheel]`).
-3. Implement the stubs in `src/my_ml_project/` (`data.py`, `features.py`,
+2. Rename the project with two search-and-replaces across the whole repo. The
+   name appears in the scripts, the tests, and `pyproject.toml`, so replacing
+   it by hand file-by-file is how you end up with a `ModuleNotFoundError`:
+   - `my_ml_project` → `churn_model` (your name, snake_case)
+   - `my-ml-project` → `churn-model` (the hyphenated form, in `pyproject.toml`)
+
+   Then rename the folder `src/my_ml_project/` to match.
+3. Implement the stubs in `src/<your_package>/` (`data.py`, `features.py`,
    `train.py`, `predict.py`). Each has a `TODO` marking what goes there.
 4. Build from there.
 
@@ -49,7 +54,7 @@ create or activate a virtual environment yourself: uv reads `pyproject.toml`,
 builds an isolated environment, installs dependencies, and caches it.
 
 ```bash
-uv sync --all-extras   # set up the environment
+uv sync                # set up the environment (includes pytest + ruff)
 uv run pytest          # runs the example test (green out of the box)
 uv run ruff check .    # lints the project
 ```
@@ -61,10 +66,10 @@ uv run scripts/train.py       # trains your model, saves models/model.pkl
 uv run scripts/evaluate.py    # scores it
 ```
 
-To explore in the notebook, install the notebook extra and launch Jupyter:
+To explore in the notebook, install the notebook group and launch Jupyter:
 
 ```bash
-uv sync --all-extras
+uv sync --group notebook
 uv run jupyter lab            # opens notebooks/01_exploration.ipynb
 ```
 
