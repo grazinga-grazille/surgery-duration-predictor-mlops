@@ -1,10 +1,32 @@
-# Example config. As your project grows, move hyperparameters and paths here
-# instead of hard-coding them across scripts. (For a fuller approach, most ML
-# teams end up on Hydra: https://hydra.cc/)
 model:
-  # your model's hyperparameters go here
   random_state: 42
+  n_estimators: 200
+  svd_components: 150
+  tfidf_max_features: 5000
+  test_size: 0.2
 
 data:
   raw_dir: data/01_raw
   processed_dir: data/03_processed
+  raw_file: LoadFile.csv
+  # Inclusive ScheduledDate cutoff for ML (train/test). Later rows → monitoring.
+  ml_cutoff_date: "2024-04-27"
+
+# Optuna hyperparameter tuning (scripts/tune_models.py)
+# Split mirrors the bike-demand notebook: 64% train / 16% valid / 20% test
+tuning:
+  n_trials: 70
+  train_fraction: 0.8
+  valid_within_train: 0.2
+  early_stopping_rounds: 30
+  random_seed: 42
+
+# Date range used for business analysis precomputation
+analysis:
+  date_start: "2024-03-01"
+  date_end: "2025-03-31"
+
+# OR cost rates ($/min)
+cost:
+  undertime_rate: 35.0
+  overtime_multiplier: 1.5

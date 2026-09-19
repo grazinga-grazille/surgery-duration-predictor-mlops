@@ -1,120 +1,149 @@
-# ML Project Template for Data Scientists
+# Surgery Duration Predictor
 
-A clean, production-minded starting point for any machine learning project. Fork
-it, rename the package, and you have the structure most MLOps-mature teams have
-converged on, already wired up with `uv`, tests, and CI.
+OR surgery duration prediction for operating-room scheduling. A Random Forest
+(with TF-IDF / SVD procedure-text features) is the production model; Linear
+Regression and XGBoost are available for comparison and Optuna tuning.
 
-This is the companion template to **Part 1** of the
+Built on the
 [MLOps for Data Scientists](https://futureproofds.com/blog/mlops-for-data-scientists)
-course. The article explains *why* the structure looks like this; this repo is
-the structure itself, ready to build on.
+project structure (`uv`, `src/` package, thin scripts, Docker, CI).
 
 ---
 
-## Why this exists
+## Setup
 
-Most models never reach production. Not because the modeling was bad, but
-because the code around the model was never built to leave a laptop. This
-template fixes that on day one: your logic lives in an installable package, your
-notebooks stay for exploration, and your scripts are thin entry points that
-production can actually call.
-
-The ML code is intentionally left as **stubs**. This is a template, not a demo,
-so you drop in your own project.
-
-## How to use it
-
-1. Click **Use this template** (or fork it) to start your own project.
-2. Rename the project with two search-and-replaces across the whole repo. The
-   name appears in the scripts, the tests, and `pyproject.toml`, so replacing
-   it by hand file-by-file is how you end up with a `ModuleNotFoundError`:
-   - `my_ml_project` → `churn_model` (your name, snake_case)
-   - `my-ml-project` → `churn-model` (the hyphenated form, in `pyproject.toml`)
-
-   Then rename the folder `src/my_ml_project/` to match.
-3. Implement the stubs in `src/<your_package>/` (`data.py`, `features.py`,
-   `train.py`, `predict.py`). Each has a `TODO` marking what goes there.
-4. Build from there.
-
-**Prefer the command line?**
+This project uses [uv](https://docs.astral.sh/uv/).
 
 ```bash
-# With the GitHub CLI (creates a fresh repo from the template):
-gh repo create my-project --template Future-Proof-DS/mlops-project-structure-for-data-scientists --clone
-
-# Or plain git (copy the files, start your own history):
-git clone https://github.com/Future-Proof-DS/mlops-project-structure-for-data-scientists.git my-project
-cd my-project && rm -rf .git && git init
+uv sync                # environment + deps (includes pytest + ruff)
+uv run pytest          # unit tests
+uv run ruff check .    # lint
 ```
 
-### The tooling (works before you write any code)
-
-This project uses [uv](https://docs.astral.sh/uv/). With `uv run`, you don't
-create or activate a virtual environment yourself: uv reads `pyproject.toml`,
-builds an isolated environment, installs dependencies, and caches it.
+Optional groups:
 
 ```bash
-uv sync                # set up the environment (includes pytest + ruff)
-uv run pytest          # runs the example test (green out of the box)
-uv run ruff check .    # lints the project
+uv sync --group notebook   # Jupyter
+uv sync --group research   # surgical_stopwords offline pipeline
 ```
 
-Once you've implemented the stubs, the scripts run end to end:
+Copy the env template (never commit a real `.env`):
 
 ```bash
-uv run scripts/train.py       # trains your model, saves models/model.pkl
-uv run scripts/evaluate.py    # scores it
+cp .env.example .env
 ```
 
-To explore in the notebook, install the notebook group and launch Jupyter:
-
-```bash
-uv sync --group notebook
-uv run jupyter lab            # opens notebooks/01_exploration.ipynb
-```
-
-> **No uv?** Install it in one line:
-> `curl -LsSf https://astral.sh/uv/install.sh | sh`
+> **No uv?** `curl -LsSf https://astral.sh/uv/install.sh | sh`
 > ([other platforms](https://docs.astral.sh/uv/getting-started/installation/)).
+
+### Data
+
+Place the surgical cases CSV at `data/01_raw/LoadFile.csv` (gitignored — confidential).
+
+`load_data()` keeps only rows with `ScheduledDate <= 2024-04-27` for ML train/test.
+Later cases are reserved for monitoring.
+
+---
+
+## Train & evaluate
+
+```bash
+uv run scripts/train.py       # fit RF + artifacts → models/*.pkl
+uv run scripts/evaluate.py    # test metrics vs booked-duration baseline
+```
+
+### Compare models (LR assumptions + XGBoost)
+
+```bash
+uv run scripts/compare_models.py
+uv run scripts/compare_models.py --skip-rf   # faster
+```
+
+### Hyperparameter tuning (Optuna)
+
+64% train / 16% valid / 20% test; minimize validation MAE (minutes).
+
+```bash
+uv run scripts/tune_models.py                         # RF + XGBoost
+uv run scripts/tune_models.py --model xgboost
+uv run scripts/tune_models.py --model random_forest --n-trials 30
+```
+
+Best params are written to `models/tuning_*.json`.
+
+---
+
+## Serve
+
+### Streamlit
+
+```bash
+uv run streamlit run app.py
+# → http://localhost:8501
+```
+
+Business Analysis needs `.streamlit/secrets.toml` (`financial_impact_csv`,
+`resource_utilization_csv`). Without it, that tab shows a notice; Prediction /
+ML Analysis / About still work.
+
+### FastAPI
+
+```bash
+uv run uvicorn api.main:app --reload
+# → http://localhost:8000  (POST /predict)
+```
+
+### Docker
+
+```bash
+docker compose up --build
+# Streamlit :8501  |  API :8000
+```
+
+---
 
 ## What goes where
 
 ```
 .
-├── src/my_ml_project/      # YOUR CODE. Installable package, imported everywhere.
-│   ├── data.py          #   loading + cleaning
-│   ├── features.py      #   feature engineering (plain, testable functions)
-│   ├── train.py         #   training logic
-│   └── predict.py       #   inference logic
-├── scripts/             # Thin entry points. Production runs these, not notebooks.
-│   ├── train.py         #   parses args, calls src/, saves the model
-│   └── evaluate.py
-├── notebooks/           # Your workshop. Notebooks import FROM src/, never the reverse.
-│   └── 01_exploration.ipynb
-├── tests/               # Because your logic is functions, it's testable.
-├── config/              # Config and hyperparameters, out of the code.
-├── data/                # Raw data is immutable; everything downstream transforms it.
-│   ├── 01_raw/          #   untouched source data
-│   ├── 02_interim/      #   partially cleaned
-│   ├── 03_processed/    #   model-ready
-│   └── 04_predictions/  #   model outputs
-├── models/              # Saved model artifacts.
-├── Dockerfile           # Containerize the project.
-├── docker-compose.yml   # Local orchestration.
-├── .github/workflows/   # CI/CD pipeline.
-├── pyproject.toml       # Dependencies + project metadata.
-└── uv.lock              # Exact, reproducible dependency versions.
+├── src/surgery_duration_predictor/   # Installable package
+│   ├── data.py                       #   load + ML date cutoff
+│   ├── features.py                   #   TF-IDF / SVD + categoricals
+│   ├── train.py                      #   RF training
+│   ├── predict.py                    #   inference
+│   ├── artifacts.py                  #   load models/*.pkl
+│   ├── diagnostics.py                #   OLS assumption checks
+│   ├── model_comparison.py           #   LR / RF / XGBoost
+│   └── tuning.py                     #   Optuna studies
+├── scripts/                          # Thin CLIs
+│   ├── train.py
+│   ├── evaluate.py
+│   ├── compare_models.py
+│   └── tune_models.py
+├── api/                              # FastAPI prediction service
+├── app.py + tabs/                    # Streamlit UI
+├── surgical_stopwords/               # Offline stopword / TF-IDF research pipeline
+├── notebooks/                        # Exploration (imports from src/)
+├── tests/
+├── config/config.yaml                # Hyperparams, cutoff, cost rates
+├── data/                             # Raw data gitignored; folders kept via .gitkeep
+├── models/                           # Artifacts gitignored; regenerated by train
+├── .env.example                      # Documented env vars (no secrets)
+├── Dockerfile
+├── docker-compose.yml
+├── .github/workflows/                # CI: ruff + pytest
+├── pyproject.toml
+└── uv.lock
 ```
 
-## The conventions that matter
+---
 
-- **`src/` layout.** Your package must be *installed* to import it, which
-  surfaces the import bugs that would otherwise only appear in deployment.
-- **Notebooks import from `src/`, not the other way around.** When you write
-  production logic inside a notebook, that's the signal to extract it.
-- **Scripts stay thin.** They parse arguments and call into `src/`. The real,
-  testable logic never lives in the script.
-- **`data/01_raw/` is immutable.** You never edit it. Every other data folder is
-  a reproducible transformation of it.
-- **Dependencies are locked** (`uv.lock`), so the project builds the same on your
-  machine, in CI, and in a container.
+## Conventions
+
+- **`src/` layout.** The package must be installed to import it.
+- **Notebooks import from `src/`, not the reverse.**
+- **Scripts stay thin.** Logic lives in the package; scripts wire I/O.
+- **`data/01_raw/` is immutable.** Never edit source data in place.
+- **Secrets stay out of git.** Use `.env.example` and ignore `.env` /
+  `.streamlit/secrets.toml` / raw CSVs / model pickles.
+- **Dependencies are locked** (`uv.lock`) for local, CI, and container parity.

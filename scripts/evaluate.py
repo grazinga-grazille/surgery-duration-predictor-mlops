@@ -1,35 +1,50 @@
-"""Thin entry point: evaluate the saved model.
+"""Entry point: evaluate the saved model against the held-out test set.
 
     uv run scripts/evaluate.py
 
-Like scripts/train.py, this just wires things together. The metric logic would
-live in src/my_ml_project/ so it stays testable.
+Loads the pre-saved model_stats and test_results artifacts produced by
+scripts/train.py and prints a performance summary.
 """
 
 from __future__ import annotations
 
+import pickle
 from pathlib import Path
 
-import joblib
-
-from my_ml_project.data import load_data
-from my_ml_project.features import build_features
-from my_ml_project.predict import predict
-
-MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "model.pkl"
+MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 
 
 def main() -> None:
-    if not MODEL_PATH.exists():
-        raise SystemExit("No model found. Run `uv run scripts/train.py` first.")
+    required = ["model_stats", "test_results"]
+    for name in required:
+        if not (MODELS_DIR / f"{name}.pkl").exists():
+            raise SystemExit(
+                f"'{name}.pkl' not found. Run `uv run scripts/train.py` first."
+            )
 
-    model = joblib.load(MODEL_PATH)
-    df = load_data()
-    X, y = build_features(df)
-    preds = predict(model, X)
+    def _load(name: str):
+        with open(MODELS_DIR / f"{name}.pkl", "rb") as f:
+            return pickle.load(f)
 
-    # TODO: compare preds to y and print the metrics you care about.
-    print(f"Scored {len(preds)} rows against {len(y)} labels.")
+    stats = _load("model_stats")
+    results = _load("test_results")
+
+    rmse_imp = (1 - stats["rmse"] / stats["booked_rmse"]) * 100
+    mae_imp = (1 - stats["mae"] / stats["booked_mae"]) * 100
+    under = (results["residual"] < 0).mean() * 100
+    over = (results["residual"] > 0).mean() * 100
+
+    print("── Model Performance ───────────────────────────────")
+    print(f"  R²:          {stats['r2']:.4f}")
+    print(f"  RMSE:        {stats['rmse']:.1f} min")
+    print(f"  MAE:         {stats['mae']:.1f} min")
+    print(f"  Test cases:  {stats['test_size']:,}")
+    print()
+    print("── vs. Booked Duration Baseline ────────────────────")
+    print(f"  Booked RMSE: {stats['booked_rmse']:.1f} min  (model improves by {rmse_imp:.1f}%)")
+    print(f"  Booked MAE:  {stats['booked_mae']:.1f} min  (model improves by {mae_imp:.1f}%)")
+    print()
+    print(f"  Under-predicted: {under:.1f}%  |  Over-predicted: {over:.1f}%")
 
 
 if __name__ == "__main__":

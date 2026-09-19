@@ -7,8 +7,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 WORKDIR /app
 COPY . .
 
-# Install dependencies from the lockfile into the container's environment.
+# Install production dependencies from the lockfile (no dev extras).
 RUN uv sync --frozen --no-dev
 
-# Default command trains the model. Swap this for your own entry point or service.
-CMD ["uv", "run", "scripts/train.py"]
+EXPOSE 8501
+
+# Default: launch the Streamlit app.
+# Override with `docker run ... uv run uvicorn api.main:app` for the API.
+CMD ["uv", "run", "streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]

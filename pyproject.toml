@@ -1,42 +1,50 @@
 [project]
-name = "my-ml-project"
-version = "0.1.0"
-description = "A production-minded ML project template for data scientists."
+name = "surgery-duration-predictor"
+version = "1.0.0"
+description = "OR surgery duration prediction using Random Forest + TF-IDF/SVD."
 requires-python = ">=3.12"
 dependencies = [
-    # Starter dependencies for a typical ML project. Adjust these for your stack.
     "pandas>=2.2",
     "numpy>=2.0",
     "scikit-learn>=1.5",
     "joblib>=1.4",
     "pyyaml>=6.0",
+    "streamlit>=1.33.0",
+    "plotly>=5.18.0",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "pydantic>=2.0.0",
+    "xgboost>=2.0",
+    "statsmodels>=0.14",
+    "scipy>=1.10",
+    "optuna>=3.6",
 ]
 
 [dependency-groups]
-# Linting + testing. `uv sync` installs these by default, so a fresh clone can
-# run the tests immediately. `uv sync --no-dev` leaves them out, which is what
-# you want when building a production image.
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
 ]
-# The notebook stack is heavy and CI doesn't need it, so it sits in its own
-# group. Install it with: uv sync --group notebook
 notebook = [
     "jupyter>=1.0",
+]
+# Dependencies for the surgical_stopwords reference pipeline (offline use only).
+# Install with: uv sync --group research
+research = [
+    "nltk>=3.8",
+    "gensim>=4.3",
+    "scipy>=1.10",
+    "pyarrow>=14.0",
+    "openpyxl>=3.1",
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# The "src layout": your package lives under src/, which forces it to be
-# installed (uv does this for you). That surfaces import bugs early, before
-# they bite you in production. Rename "my_ml_project" to your package name.
 [tool.hatch.build.targets.wheel]
-packages = ["src/my_ml_project"]
+packages = ["src/surgery_duration_predictor"]
 
 [tool.ruff]
 line-length = 100
-# Notebooks are exploratory; don't fail CI on unused imports there.
 extend-exclude = ["notebooks"]
