@@ -1,8 +1,4 @@
-"""api/predictor.py — Thin adapter between the FastAPI endpoint and the package.
-
-Loads artifacts once at startup via the package's load_artifacts(), then
-delegates prediction to surgery_duration_predictor.predict.predict().
-"""
+"""services/fastapi/predictor.py — Thin adapter to the ML package."""
 
 from surgery_duration_predictor.artifacts import load_artifacts
 from surgery_duration_predictor.predict import predict as _predict

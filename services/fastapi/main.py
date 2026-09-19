@@ -1,17 +1,17 @@
-"""api/main.py — FastAPI application entry point.
+"""FastAPI application entry point.
 
 Exposes:
   GET  /          -> health check
   POST /predict   -> surgery duration prediction
 
-Run with:
-  uv run uvicorn api.main:app --reload
+Run from repo root:
+  uv run uvicorn main:app --app-dir services/fastapi --reload
 """
 
 from fastapi import FastAPI, HTTPException
 
-from api.predictor import predict
-from api.schemas import PredictionRequest, PredictionResponse
+from predictor import predict
+from schemas import PredictionRequest, PredictionResponse
 from surgery_duration_predictor.artifacts import load_artifacts
 
 app = FastAPI(

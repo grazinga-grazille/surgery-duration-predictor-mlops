@@ -1,19 +1,83 @@
-# Local orchestration.
+# Local stack: Postgres + MinIO + Streamlit + FastAPI.
+# Usage:
+#   cp .env.example .env   # then edit passwords
+#   docker compose up -d
+#   docker compose up -d postgres minio   # infra only
+#   docker compose ps
+
 services:
-  # Streamlit dashboard
-  app:
-    build: .
+  postgres:
+    image: postgres:16
+    container_name: surgery_postgres
+    env_file:
+      - .env
+    volumes:
+      - ./volumes/postgres:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
-      - "8501:8501"
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - surgery_network
+    restart: always
+
+  minio:
+    image: minio/minio:latest
+    container_name: surgery_minio
+    env_file:
+      - .env
+    command: server /data --console-address ":9001"
+    volumes:
+      - ./volumes/minio:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - surgery_network
+    restart: always
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: services/streamlit/Dockerfile
+    container_name: surgery_streamlit
+    env_file:
+      - .env
+    ports:
+      - "${STREAMLIT_PORT:-8501}:8501"
     volumes:
       - ./models:/app/models
       - ./.streamlit:/app/.streamlit
+    networks:
+      - surgery_network
+    restart: unless-stopped
 
-  # FastAPI prediction service
-  api:
-    build: .
-    command: ["uv", "run", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+  fastapi:
+    build:
+      context: .
+      dockerfile: services/fastapi/Dockerfile
+    container_name: surgery_api
+    env_file:
+      - .env
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     volumes:
       - ./models:/app/models
+    networks:
+      - surgery_network
+    restart: unless-stopped
+
+networks:
+  surgery_network:
+    driver: bridge
