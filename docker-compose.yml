@@ -27,7 +27,7 @@ services:
     restart: always
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     container_name: surgery_minio
     env_file:
       - .env
