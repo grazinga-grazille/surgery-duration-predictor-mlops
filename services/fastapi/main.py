@@ -21,8 +21,17 @@ from predictor import predict
 from schemas import PredictionRequest, PredictionResponse
 from surgery_duration_predictor.serving import load_serving_artifacts
 
-# Load repo-root .env when running uvicorn on the host (Compose injects env itself).
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+# Host runs: services/fastapi/main.py → repo-root/.env
+# Docker image: /app/main.py → Compose already injects env; .env may not exist.
+_env = Path(__file__).resolve().parent
+for _ in range(4):
+    candidate = _env / ".env"
+    if candidate.is_file():
+        load_dotenv(candidate)
+        break
+    if _env.parent == _env:
+        break
+    _env = _env.parent
 
 app = FastAPI(
     title="Surgery Duration Predictor",
