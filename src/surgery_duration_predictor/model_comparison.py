@@ -130,6 +130,28 @@ def fit_linear_regression(
     }
 
 
+# Best Optuna params from models/tuning_xgboost.json (70 trials).
+BEST_XGBOOST_PARAMS: dict[str, Any] = {
+    "learning_rate": 0.012645540454443964,
+    "max_depth": 10,
+    "n_estimators": 646,
+    "subsample": 0.9013719848538555,
+    "colsample_bytree": 0.6393325808934611,
+    "min_child_weight": 4,
+    "reg_lambda": 1.7794500569750102,
+    "reg_alpha": 0.003047567485839047,
+}
+
+# Best Optuna params from models/tuning_random_forest.json (70 trials).
+BEST_RF_PARAMS: dict[str, Any] = {
+    "n_estimators": 157,
+    "max_depth": 21,
+    "min_samples_leaf": 3,
+    "min_samples_split": 20,
+    "max_features": 0.3,
+}
+
+
 def fit_xgboost(
     X_train: pd.DataFrame,
     y_train: pd.Series,
@@ -137,15 +159,9 @@ def fit_xgboost(
     *,
     random_state: int = 42,
 ) -> dict[str, Any]:
-    """Fit an XGBoost regressor on the shared log-duration target."""
+    """Fit XGBoost with Optuna best params on the shared log-duration target."""
     model = XGBRegressor(
-        n_estimators=400,
-        max_depth=6,
-        learning_rate=0.05,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        reg_lambda=1.0,
-        min_child_weight=5,
+        **BEST_XGBOOST_PARAMS,
         objective="reg:squarederror",
         random_state=random_state,
         n_jobs=-1,
@@ -166,9 +182,9 @@ def fit_random_forest(
     *,
     random_state: int = 42,
 ) -> dict[str, Any]:
-    """Fit the production Random Forest for side-by-side comparison."""
+    """Fit Random Forest with Optuna best params for side-by-side comparison."""
     model = RandomForestRegressor(
-        n_estimators=200,
+        **BEST_RF_PARAMS,
         random_state=random_state,
         n_jobs=-1,
     )
@@ -207,21 +223,8 @@ def compare_models(
 
     default_params: dict[str, dict] = {
         "linear": {"model": "LinearRegression", "scaled_features": True},
-        "xgboost": {
-            "n_estimators": 400,
-            "max_depth": 6,
-            "learning_rate": 0.05,
-            "subsample": 0.8,
-            "colsample_bytree": 0.8,
-            "min_child_weight": 5,
-            "reg_lambda": 1.0,
-            "random_state": random_state,
-        },
-        "random_forest": {
-            "n_estimators": 200,
-            "random_state": random_state,
-            "n_jobs": -1,
-        },
+        "xgboost": {**BEST_XGBOOST_PARAMS, "random_state": random_state},
+        "random_forest": {**BEST_RF_PARAMS, "random_state": random_state, "n_jobs": -1},
     }
 
     for name in models:
