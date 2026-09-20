@@ -267,6 +267,7 @@ def compare_models(
                 n_test=len(split["test_df"]),
                 diagnostics=out.get("diagnostics"),
                 diagnostics_text=out.get("diagnostics_text"),
+                model=out.get("model"),
             )
             if run_id:
                 mlflow_run_ids[name] = run_id

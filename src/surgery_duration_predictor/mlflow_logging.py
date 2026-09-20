@@ -119,6 +119,22 @@ def start_run(
         yield run
 
 
+def _log_model_artifact(model_family: str, model: Any) -> None:
+    """Upload a fitted model under artifact_path='model' (MinIO / S3)."""
+    import mlflow
+
+    try:
+        if model_family == "xgboost":
+            import mlflow.xgboost
+
+            mlflow.xgboost.log_model(model, artifact_path="model")
+        else:
+            # linear / random_forest / other sklearn estimators
+            mlflow.sklearn.log_model(model, artifact_path="model")
+    except Exception as exc:
+        mlflow.log_param("model_log_error", str(exc)[:200])
+
+
 def log_compare_run(
     *,
     model_family: str,
@@ -128,8 +144,13 @@ def log_compare_run(
     n_test: int,
     diagnostics: dict[str, Any] | None = None,
     diagnostics_text: str | None = None,
+    model: Any | None = None,
 ) -> str | None:
-    """Log one model from the comparison suite. Returns run_id or None."""
+    """Log one model from the comparison suite. Returns run_id or None.
+
+    Params/metrics go to the Postgres tracking store; optional diagnostics JSON
+    and the fitted ``model`` are uploaded to the artifact store (MinIO).
+    """
     tags = _base_tags(model_family=model_family, stage="compare")
     with start_run(
         experiment=EXPERIMENT_COMPARE,
@@ -156,6 +177,9 @@ def log_compare_run(
                 }
                 path.write_text(json.dumps(payload, indent=2, default=str))
                 mlflow.log_artifact(str(path))
+
+        if model is not None:
+            _log_model_artifact(model_family, model)
 
         return run.info.run_id
 
@@ -225,15 +249,7 @@ def log_tune_best(
         mlflow.log_artifact(str(tuning_json_path))
 
     if model is not None:
-        try:
-            if model_family == "xgboost":
-                import mlflow.xgboost
-
-                mlflow.xgboost.log_model(model, artifact_path="model")
-            else:
-                mlflow.sklearn.log_model(model, artifact_path="model")
-        except Exception as exc:
-            mlflow.log_param("model_log_error", str(exc)[:200])
+        _log_model_artifact(model_family, model)
 
     run = mlflow.active_run()
     return run.info.run_id if run else None
