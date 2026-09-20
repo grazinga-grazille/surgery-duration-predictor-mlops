@@ -5,7 +5,8 @@ Tab content lives in tabs/*.py.
 
 Prediction calls the FastAPI /predict endpoint (which loads the model from
 MLflow artifacts and applies TF-IDF → SVD embeddings server-side). Local
-models/*.pkl are only used for sidebar dropdowns / ML Analysis charts.
+models/*.pkl power sidebar dropdowns; dashboard_*.pkl (from
+scripts/build_dashboard_artifacts.py) drive ML Analysis and Business Analysis.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import urllib.request
 import streamlit as st
 
 from surgery_duration_predictor.artifacts import load_artifacts as _load_artifacts
+from surgery_duration_predictor.dashboard_metrics import load_dashboard_artifacts
 from tabs import about, business_analysis, model_performance, prediction
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -117,6 +119,18 @@ try:
     model_loaded = True
 except FileNotFoundError:
     model_loaded = False
+
+# Prefer serving-model dashboard pickles when present (XGBoost / business calcs)
+_dash = load_dashboard_artifacts()
+financial_df = None
+resource_df = None
+dash_meta = None
+if _dash is not None:
+    model_stats = _dash["model_stats"]
+    test_results = _dash["test_results"]
+    financial_df = _dash["financial"]
+    resource_df = _dash["resource"]
+    dash_meta = _dash["meta"]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -255,7 +269,7 @@ with tab_model:
     model_performance.render(model_stats, test_results)
 
 with tab_business:
-    business_analysis.render()
+    business_analysis.render(financial_df, resource_df, dash_meta)
 
 with tab_about:
-    about.render()
+    about.render(dash_meta)

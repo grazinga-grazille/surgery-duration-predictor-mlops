@@ -8,9 +8,15 @@ from sklearn.metrics import mean_absolute_error
 
 
 def render(model_stats, test_results):
+    family = model_stats.get("model_family")
+    source = model_stats.get("source")
+    if family or source:
+        bits = [b for b in (family, source) if b]
+        st.caption("Serving model metrics · " + " · ".join(bits))
+
     st.subheader("Performance Metrics")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("R² Score", f"{model_stats['r2']:.3f}", help="Closer to 1.0 is better.")
+    c1.metric("R² Score", f"{model_stats['r2']:.3f}", help="Closer to 1.0 is better (minutes scale).")
     c2.metric("RMSE", f"{model_stats['rmse']:.1f} min", help="Root Mean Squared Error.")
     c3.metric("MAE", f"{model_stats['mae']:.1f} min", help="Mean Absolute Error.")
     c4.metric("Test Cases", f"{model_stats['test_size']:,}")

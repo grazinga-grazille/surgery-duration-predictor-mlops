@@ -1,60 +1,41 @@
 """tabs/business_analysis.py — Business Analysis tab
 
-Reads precomputed aggregated summaries from Streamlit Secrets (no patient-level data).
-Cost formula used during precomputation (applied per case, always positive):
+Uses precomputed summaries from ``scripts/build_dashboard_artifacts.py``
+(models/dashboard_*.pkl). Cost formula (per case, always positive):
+
   net >= 0  (over-ran)  ->  net      x $35 x 1.5
   net <  0  (under-ran) ->  abs(net) x $35
 """
 
-import io
+from __future__ import annotations
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-DATE_START = "2024-03-01"
-DATE_END   = "2025-03-31"
-_RATE      = 35.0
-_RATE_OVER = _RATE * 1.5
-
 _BLUE = "#4A90D9"
 _TEAL = "#1ABC9C"
 
 
-# ── Data loading ──────────────────────────────────────────────────────────────
-
-@st.cache_data(show_spinner="Loading analysis data ...")
-def _load_comparison_data() -> pd.DataFrame:
-    """Read precomputed financial impact summary from Streamlit Secrets."""
-    return pd.read_csv(io.StringIO(st.secrets["financial_impact_csv"]))
-
-
-@st.cache_data(show_spinner="Loading resource utilization data ...")
-def _load_resource_utilization_data() -> pd.DataFrame:
-    """Read precomputed resource utilization summary from Streamlit Secrets."""
-    return pd.read_csv(io.StringIO(st.secrets["resource_utilization_csv"]))
-
-
-# ── Tab renderer ──────────────────────────────────────────────────────────────
-
-def render():
+def render(financial: pd.DataFrame | None = None, resource: pd.DataFrame | None = None,
+           meta: dict | None = None):
     st.subheader("Business Analysis")
     st.caption(
         "Quantifying the operational and financial impact of improved scheduling accuracy."
     )
 
-    try:
-        _ = st.secrets["financial_impact_csv"]
-        _ = st.secrets["resource_utilization_csv"]
-    except Exception:
+    if financial is None or resource is None or financial.empty or resource.empty:
         st.info(
-            "Business analysis data is not configured for this environment. "
-            "Add `financial_impact_csv` and `resource_utilization_csv` to "
-            "`.streamlit/secrets.toml` to enable this tab. "
-            "Prediction and ML Analysis still work without it."
+            "Business analysis artifacts not found. Run "
+            "`uv run scripts/build_dashboard_artifacts.py` to compute financial "
+            "and resource summaries from the serving model."
         )
         return
+
+    meta = meta or {}
+    date_start = meta.get("date_start", "2024-03-01")
+    date_end = meta.get("date_end", "2025-03-31")
 
     fi_tab, ru_tab = st.tabs([
         "💰 Financial Impact",
@@ -62,10 +43,10 @@ def render():
     ])
 
     with fi_tab:
-        _render_financial_impact()
+        _render_financial_impact(financial, date_start, date_end, meta)
 
     with ru_tab:
-        _render_resource_utilization()
+        _render_resource_utilization(resource, date_start, date_end)
 
 
 # ── Chart helper ──────────────────────────────────────────────────────────────
@@ -97,27 +78,26 @@ def _bar_chart(specialties, values, color, y_title, key):
 
 # ── Financial impact renderer ─────────────────────────────────────────────────
 
-def _render_financial_impact():
-    data = _load_comparison_data()
-    specialties   = data["ProcedureSpecialtyDescription"].tolist()
+def _render_financial_impact(data: pd.DataFrame, date_start: str, date_end: str, meta: dict):
+    specialties = data["ProcedureSpecialtyDescription"].tolist()
     baseline_cost = data["baseline_cost"].tolist()
-    pred_cost     = data["predicted_cost"].tolist()
-    savings       = data["savings"].tolist()
-    total_cases   = int(data["case_count"].sum())
-    total_saved   = sum(savings)
+    pred_cost = data["predicted_cost"].tolist()
+    savings = data["savings"].tolist()
+    total_cases = int(data["case_count"].sum())
+    total_saved = sum(savings)
+    rate = float(meta.get("undertime_rate", 35.0))
+    over_mult = float(meta.get("overtime_multiplier", 1.5))
+    overtime_rate = rate * over_mult
 
-    caption = f"**{DATE_START}** to **{DATE_END}** · {total_cases:,} cases"
+    caption = f"**{date_start}** to **{date_end}** · {total_cases:,} cases"
 
-    # ── Summary metrics ───────────────────────────────────────────────────────
     m1, m2, m3 = st.columns(3)
     m1.metric(
         "Total Baseline Cost",
         f"${sum(baseline_cost):,.0f}",
         help=(
-            "Total net OR scheduling cost across all specialties using the originally "
-            "booked duration as the planned schedule. Each case is costed by how far "
-            "its actual duration deviated from the booked time — overtime at \\$52.50 per min, "
-            "undertime (opportunity cost) at \\$35 per min."
+            "Total net OR scheduling cost using booked duration as the plan. "
+            f"Overtime at \\${overtime_rate:.2f}/min, undertime at \\${rate:.0f}/min."
         ),
     )
     m2.metric(
@@ -125,9 +105,7 @@ def _render_financial_impact():
         f"${sum(pred_cost):,.0f}",
         help=(
             "Total net OR scheduling cost if the model's predicted duration had been "
-            "used as the planned schedule instead of the booked duration. A lower value "
-            "than the baseline means the model's predictions lead to smaller deviations "
-            "from actual surgery times."
+            "used as the planned schedule instead of the booked duration."
         ),
     )
     m3.metric(
@@ -137,27 +115,23 @@ def _render_financial_impact():
         delta_color="normal" if total_saved >= 0 else "inverse",
         help=(
             "Difference between baseline cost and predicted cost (baseline - predicted). "
-            "A positive value means the model's schedule predictions reduce overall OR "
-            "scheduling cost compared to the original booked durations."
+            "Positive means the model reduces overall OR scheduling cost."
         ),
     )
     st.divider()
 
-    # ── Baseline chart ────────────────────────────────────────────────────────
     st.markdown("#### Baseline Net OR Cost by Specialty")
     st.caption(
         caption + " · Cost of scheduling deviations using the originally booked duration as the plan"
     )
     _bar_chart(specialties, baseline_cost, _BLUE, "Net OR Cost ($)", "fi_baseline")
 
-    # ── Prediction chart ──────────────────────────────────────────────────────
     st.markdown("#### Model Prediction Net OR Cost by Specialty")
     st.caption(
         caption + " · Cost of scheduling deviations using the model's predicted duration as the plan"
     )
     _bar_chart(specialties, pred_cost, _TEAL, "Net OR Cost ($)", "fi_predicted")
 
-    # ── Cost impact chart ─────────────────────────────────────────────────────
     st.markdown("#### Cost Savings by Specialty")
     st.caption(
         "How much the model reduces (or increases) net OR scheduling cost per specialty "
@@ -190,28 +164,27 @@ def _render_financial_impact():
 
 # ── Resource Utilization renderer ─────────────────────────────────────────────
 
-def _render_resource_utilization():
-    summary = _load_resource_utilization_data()
-
-    specialties  = summary["ProcedureSpecialtyDescription"].tolist()
-    performed    = summary["total_surgeries"].tolist()
-    additional   = summary["total_additional_possible"].tolist()
-    total_cases  = sum(performed)
-    total_extra  = sum(additional)
+def _render_resource_utilization(summary: pd.DataFrame, date_start: str, date_end: str):
+    specialties = summary["ProcedureSpecialtyDescription"].tolist()
+    performed = summary["total_surgeries"].tolist()
+    additional = summary["total_additional_possible"].tolist()
+    total_cases = sum(performed)
+    total_extra = sum(additional)
 
     st.caption(
-        f"**{DATE_START}** to **{DATE_END}** · {total_cases:,} surgeries performed · "
+        f"**{date_start}** to **{date_end}** · {total_cases:,} surgeries performed · "
         f"{total_extra:,} additional surgeries possible from recovered schedule time"
     )
 
-    # ── Summary metrics ───────────────────────────────────────────────────────
     m1, m2 = st.columns(2)
     m1.metric("Total Surgeries Performed", f"{total_cases:,}")
-    m2.metric("Additional Surgeries Possible", f"{total_extra:,}",
-              help="High-count procedures that fit within recovered OR time across all days.")
+    m2.metric(
+        "Additional Surgeries Possible",
+        f"{total_extra:,}",
+        help="High-count procedures that fit within recovered OR time across all days.",
+    )
     st.divider()
 
-    # ── Total surgeries performed chart ───────────────────────────────────────
     st.markdown("#### Total Surgeries Performed by Specialty")
     fig1 = go.Figure(go.Bar(
         x=specialties,
@@ -235,11 +208,11 @@ def _render_resource_utilization():
     )
     st.plotly_chart(fig1, use_container_width=True)
 
-    # ── Additional surgeries possible chart ───────────────────────────────────
     st.markdown("#### Additional Surgeries Possible from Recovered Schedule Time")
     st.caption(
-        "Number of additional high-volume procedures that fit within OR time recovered "
-        "on days where surgeries ran under their booked duration."
+        "Number of additional high-volume procedures that fit within net OR time recovered "
+        "on room-days that finished under their booked schedule "
+        "(floor of net under-run minutes ÷ mean high-volume procedure duration)."
     )
     fig2 = go.Figure(go.Bar(
         x=specialties,
@@ -263,10 +236,12 @@ def _render_resource_utilization():
     )
     st.plotly_chart(fig2, use_container_width=True)
 
-    # ── Breakdown by specialty ────────────────────────────────────────────────
     st.markdown("#### Specialty Breakdown")
-    ref = summary[["ProcedureSpecialtyDescription",
-                   "avg_procedure_duration_min", "total_additional_possible"]].copy()
+    ref = summary[[
+        "ProcedureSpecialtyDescription",
+        "avg_procedure_duration_min",
+        "total_additional_possible",
+    ]].copy()
     ref.columns = ["Specialty", "Avg Procedure Duration (min)", "Additional Surgeries Possible"]
     ref["Avg Procedure Duration (min)"] = ref["Avg Procedure Duration (min)"].round(1)
     st.dataframe(ref, use_container_width=True, hide_index=True)

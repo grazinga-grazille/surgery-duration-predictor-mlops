@@ -71,6 +71,18 @@ uv run scripts/tune_models.py --model random_forest --n-trials 30
 
 Best params are written to `models/tuning_*.json`.
 
+### Dashboard metrics (ML Analysis + Business Analysis)
+
+Rebuild Streamlit charts from the **serving** model (XGBoost) and the OR cost
+formula in `config/config.yaml` (`$35/min` undertime, `1.5×` overtime):
+
+```bash
+uv run scripts/build_dashboard_artifacts.py            # prefer MLflow serving run
+uv run scripts/build_dashboard_artifacts.py --no-mlflow  # local Optuna-best XGB
+```
+
+Writes `models/dashboard_*.pkl` (mounted into the Streamlit container).
+
 ---
 
 ## Serve
@@ -82,9 +94,9 @@ uv run streamlit run services/streamlit/app.py
 # → http://localhost:8501
 ```
 
-Business Analysis needs `.streamlit/secrets.toml` (`financial_impact_csv`,
-`resource_utilization_csv`). Without it, that tab shows a notice; Prediction /
-ML Analysis / About still work.
+ML Analysis / Business Analysis read `models/dashboard_*.pkl` from
+`build_dashboard_artifacts.py`. Without those pickles, Business Analysis shows
+a notice; Prediction still works via FastAPI.
 
 ### FastAPI
 

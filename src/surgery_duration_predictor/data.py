@@ -58,3 +58,29 @@ def load_data(path: Path | None = None) -> pd.DataFrame:
     df = df.loc[scheduled.notna() & (scheduled <= ML_CUTOFF_DATE)]
 
     return df.reset_index(drop=True)
+
+
+def load_analysis_data(
+    path: Path | None = None,
+    *,
+    date_start: str = "2024-03-01",
+    date_end: str = "2025-03-31",
+) -> pd.DataFrame:
+    """Load cases for business analysis (date window, no ML cutoff).
+
+    Used for financial / resource utilization charts on the dashboard.
+    Applies the same duration / key-column filters as ``load_data``.
+    """
+    if path is None:
+        path = RAW_DIR / "LoadFile.csv"
+
+    df = pd.read_csv(path, low_memory=False)
+    df = df[df["ActualDurationMinutes"] > 0]
+    df = df[df["book_dur"] > 0]
+    df = df.dropna(subset=_KEY_COLS)
+
+    scheduled = pd.to_datetime(df["ScheduledDate"], errors="coerce")
+    start = pd.Timestamp(date_start)
+    end = pd.Timestamp(date_end)
+    df = df.loc[scheduled.notna() & (scheduled >= start) & (scheduled <= end)]
+    return df.reset_index(drop=True)
