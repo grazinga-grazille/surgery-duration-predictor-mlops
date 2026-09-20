@@ -36,19 +36,19 @@ def render(run, description, surgical_priority, patient_type, room, specialty,
     else:
         pred, model_version = result, "api"
 
+    # Keep the HTML block simple — Streamlit often escapes nested styled <p> tags.
+    duration_line = ""
+    if pred >= 60:
+        duration_line = f"<p>({fmt_duration_fn(pred)})</p>"
+
     st.markdown(
         f"""
         <div class="predict-box">
             <p>Predicted Surgery Duration</p>
             <h1>{pred:.0f} <span style="font-size:1.8rem">min</span></h1>
-            {f'<p style="font-size:1.1rem; margin-top:0.4rem; color:#ccd;">({fmt_duration_fn(pred)})</p>' if pred >= 60 else ''}
-            <p style="font-size:0.9rem; margin-top:0.6rem; color:#9ab;">model={model_version}</p>
+            {duration_line}
         </div>
         """,
         unsafe_allow_html=True,
     )
-    st.caption(
-        "Procedure text is embedded (TF-IDF → SVD) inside FastAPI using MLflow "
-        "feature artifacts, then scored by the loaded model."
-    )
-    st.write("")
+    st.caption(f"model={model_version}")

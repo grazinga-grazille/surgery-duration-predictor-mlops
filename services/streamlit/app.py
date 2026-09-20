@@ -172,7 +172,6 @@ with st.sidebar:
         st.stop()
 
     st.subheader("Procedure Details")
-    st.caption(f"Predict via API → `{API_BASE_URL}/predict`")
 
     # ── Cascading dropdowns ───────────────────────────────────────────────────
     patient_type = st.selectbox("Patient Type", cat_values["PatientType"])
