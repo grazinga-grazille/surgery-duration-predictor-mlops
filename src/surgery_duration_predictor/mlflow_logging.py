@@ -120,17 +120,24 @@ def start_run(
 
 
 def _log_model_artifact(model_family: str, model: Any) -> None:
-    """Upload a fitted model under artifact_path='model' (MinIO / S3)."""
+    """Upload a fitted model under artifact_path='model' (MinIO / S3).
+
+    Uses save_model + log_artifacts instead of log_model so we stay compatible
+    with MLflow tracking servers that do not implement /logged-models (2.x).
+    """
     import mlflow
 
     try:
-        if model_family == "xgboost":
-            import mlflow.xgboost
+        with tempfile.TemporaryDirectory() as tmp:
+            local_dir = Path(tmp) / "model"
+            if model_family == "xgboost":
+                import mlflow.xgboost
 
-            mlflow.xgboost.log_model(model, artifact_path="model")
-        else:
-            # linear / random_forest / other sklearn estimators
-            mlflow.sklearn.log_model(model, artifact_path="model")
+                mlflow.xgboost.save_model(model, str(local_dir))
+            else:
+                # linear / random_forest / other sklearn estimators
+                mlflow.sklearn.save_model(model, str(local_dir))
+            mlflow.log_artifacts(str(local_dir), artifact_path="model")
     except Exception as exc:
         mlflow.log_param("model_log_error", str(exc)[:200])
 
