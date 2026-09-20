@@ -2,14 +2,23 @@
 
 Streamlit entry point: page config, styles, model loading, sidebar, tab wiring.
 Tab content lives in tabs/*.py.
+
+Prediction calls the FastAPI /predict endpoint (which loads the model from
+MLflow artifacts and applies TF-IDF → SVD embeddings server-side). Local
+models/*.pkl are only used for sidebar dropdowns / ML Analysis charts.
 """
 
+from __future__ import annotations
+
+import json
+import os
 import random
+import urllib.error
+import urllib.request
 
 import streamlit as st
 
 from surgery_duration_predictor.artifacts import load_artifacts as _load_artifacts
-from surgery_duration_predictor.predict import predict as _predict
 from tabs import about, business_analysis, model_performance, prediction
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -86,25 +95,24 @@ st.markdown(
 )
 
 
-# ── Load artifacts ────────────────────────────────────────────────────────────
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 
-@st.cache_resource(show_spinner="Loading model ...")
+
+# ── Load artifacts (UI metadata only) ─────────────────────────────────────────
+
+@st.cache_resource(show_spinner="Loading UI artifacts ...")
 def load_artifacts():
     return _load_artifacts()
 
 
 try:
     arts = load_artifacts()
-    rf_model          = arts["rf_model"]
-    tfidf             = arts["tfidf"]
-    svd               = arts["svd"]
-    feature_columns   = arts["feature_columns"]
-    cat_values        = arts["categorical_values"]
+    cat_values = arts["categorical_values"]
     valid_combinations = arts["valid_combinations"]
     procedure_examples = arts["procedure_examples"]
-    model_stats       = arts["model_stats"]
-    test_results      = arts["test_results"]
-    patient_to_specialty      = valid_combinations["patient_to_specialty"]
+    model_stats = arts["model_stats"]
+    test_results = arts["test_results"]
+    patient_to_specialty = valid_combinations["patient_to_specialty"]
     patient_specialty_to_room = valid_combinations["patient_specialty_to_room"]
     model_loaded = True
 except FileNotFoundError:
@@ -114,9 +122,33 @@ except FileNotFoundError:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def predict(surgical_priority, patient_type, room, specialty, description):
-    return _predict(
-        rf_model, tfidf, svd, feature_columns,
-        surgical_priority, patient_type, room, specialty, description,
+    """POST to FastAPI; server embeds procedure text (TF-IDF→SVD) and scores."""
+    payload = {
+        "surgical_priority": int(surgical_priority),
+        "patient_type": patient_type,
+        "room": room,
+        "specialty": specialty,
+        "procedure_description": description,
+    }
+    req = urllib.request.Request(
+        f"{API_BASE_URL}/predict",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"API {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(
+            f"Cannot reach API at {API_BASE_URL}. "
+            "Start FastAPI (uv run uvicorn … or docker compose up fastapi)."
+        ) from exc
+    return float(body["predicted_duration_minutes"]), str(
+        body.get("model_version", "api")
     )
 
 
@@ -133,12 +165,14 @@ with st.sidebar:
 
     if not model_loaded:
         st.error(
-            "**Model not found.**\n\n"
-            "Run `uv run scripts/train.py` first to train and save the model."
+            "**UI artifacts not found.**\n\n"
+            "Run `uv run scripts/train.py` once so sidebar dropdowns have values. "
+            "Predictions still come from the FastAPI / MLflow model."
         )
         st.stop()
 
     st.subheader("Procedure Details")
+    st.caption(f"Predict via API → `{API_BASE_URL}/predict`")
 
     # ── Cascading dropdowns ───────────────────────────────────────────────────
     patient_type = st.selectbox("Patient Type", cat_values["PatientType"])
@@ -191,7 +225,7 @@ with st.sidebar:
         st.rerun()
 
     pool = procedure_examples.get(specialty, [])
-    rng  = random.Random(st.session_state.shuffle_seed)
+    rng = random.Random(st.session_state.shuffle_seed)
     shown = rng.sample(pool, min(5, len(pool))) if pool else []
 
     for proc in shown:

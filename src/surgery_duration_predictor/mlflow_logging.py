@@ -142,6 +142,33 @@ def _log_model_artifact(model_family: str, model: Any) -> None:
         mlflow.log_param("model_log_error", str(exc)[:200])
 
 
+def _log_feature_artifacts(
+    *,
+    tfidf: Any,
+    svd: Any,
+    feature_columns: list[str],
+) -> None:
+    """Upload TF-IDF / SVD / column list needed for online inference."""
+    import pickle
+
+    import mlflow
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, obj in (
+                ("tfidf.pkl", tfidf),
+                ("svd.pkl", svd),
+                ("feature_columns.pkl", feature_columns),
+            ):
+                path = root / name
+                with open(path, "wb") as f:
+                    pickle.dump(obj, f)
+                mlflow.log_artifact(str(path), artifact_path="features")
+    except Exception as exc:
+        mlflow.log_param("features_log_error", str(exc)[:200])
+
+
 def log_compare_run(
     *,
     model_family: str,
@@ -152,11 +179,14 @@ def log_compare_run(
     diagnostics: dict[str, Any] | None = None,
     diagnostics_text: str | None = None,
     model: Any | None = None,
+    tfidf: Any | None = None,
+    svd: Any | None = None,
+    feature_columns: list[str] | None = None,
 ) -> str | None:
     """Log one model from the comparison suite. Returns run_id or None.
 
-    Params/metrics go to the Postgres tracking store; optional diagnostics JSON
-    and the fitted ``model`` are uploaded to the artifact store (MinIO).
+    Params/metrics go to the Postgres tracking store; fitted ``model`` plus
+    optional feature transformers are uploaded to the artifact store (MinIO).
     """
     tags = _base_tags(model_family=model_family, stage="compare")
     with start_run(
@@ -187,6 +217,11 @@ def log_compare_run(
 
         if model is not None:
             _log_model_artifact(model_family, model)
+
+        if tfidf is not None and svd is not None and feature_columns is not None:
+            _log_feature_artifacts(
+                tfidf=tfidf, svd=svd, feature_columns=feature_columns
+            )
 
         return run.info.run_id
 

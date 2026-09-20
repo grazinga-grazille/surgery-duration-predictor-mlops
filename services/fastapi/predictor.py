@@ -1,7 +1,7 @@
 """services/fastapi/predictor.py — Thin adapter to the ML package."""
 
-from surgery_duration_predictor.artifacts import load_artifacts
 from surgery_duration_predictor.predict import predict as _predict
+from surgery_duration_predictor.serving import load_serving_artifacts
 
 
 def predict(
@@ -10,11 +10,11 @@ def predict(
     room: str,
     specialty: str,
     procedure_description: str,
-) -> float:
-    """Run the model and return predicted duration in minutes."""
-    arts = load_artifacts()
-    return _predict(
-        arts["rf_model"],
+) -> tuple[float, str]:
+    """Run the model and return (duration_minutes, model_family)."""
+    arts = load_serving_artifacts()
+    minutes = _predict(
+        arts["model"],
         arts["tfidf"],
         arts["svd"],
         arts["feature_columns"],
@@ -24,3 +24,4 @@ def predict(
         specialty,
         procedure_description,
     )
+    return minutes, str(arts["model_family"])

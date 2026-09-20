@@ -104,11 +104,15 @@ services:
     container_name: surgery_streamlit
     env_file:
       - .env
+    environment:
+      API_BASE_URL: http://fastapi:8000
     ports:
       - "${STREAMLIT_PORT:-8501}:8501"
     volumes:
       - ./models:/app/models
       - ./.streamlit:/app/.streamlit
+    depends_on:
+      - fastapi
     networks:
       - surgery_network
     restart: unless-stopped
@@ -120,10 +124,19 @@ services:
     container_name: surgery_api
     env_file:
       - .env
+    environment:
+      # Inside Compose, talk to sibling services by name (override host .env)
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      MLFLOW_LOAD_FROM_ARTIFACTS: "true"
+      MLFLOW_SERVING_MODEL_FAMILY: ${MLFLOW_SERVING_MODEL_FAMILY:-xgboost}
     ports:
       - "${API_PORT:-8000}:8000"
-    volumes:
-      - ./models:/app/models
+    depends_on:
+      - mlflow
+      - minio
     networks:
       - surgery_network
     restart: unless-stopped

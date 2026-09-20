@@ -88,10 +88,21 @@ ML Analysis / About still work.
 
 ### FastAPI
 
+Loads the estimator + TF-IDF/SVD from **MLflow MinIO artifacts** when configured
+(``.env``: `MLFLOW_LOAD_FROM_ARTIFACTS=true`, `MLFLOW_SERVING_MODEL_FAMILY=xgboost`,
+or `MLFLOW_MODEL_URI=runs:/<run_id>/model`). Otherwise uses local `models/*.pkl`.
+
 ```bash
+# After compare_models has logged model/ + features/ artifacts:
 uv run uvicorn main:app --app-dir services/fastapi --reload
-# → http://localhost:8000  (POST /predict)
+# → http://localhost:8000  (GET /model, POST /predict)
 ```
+
+### Streamlit → API
+
+The Prediction tab POSTs sidebar fields (including procedure description) to
+`API_BASE_URL/predict`. FastAPI embeds the text and returns the duration.
+Set `API_BASE_URL=http://localhost:8000` locally (Compose uses `http://fastapi:8000`).
 
 ### Docker
 

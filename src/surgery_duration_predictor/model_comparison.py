@@ -268,6 +268,9 @@ def compare_models(
                 diagnostics=out.get("diagnostics"),
                 diagnostics_text=out.get("diagnostics_text"),
                 model=out.get("model"),
+                tfidf=split["tfidf"],
+                svd=split["svd"],
+                feature_columns=split["feature_columns"],
             )
             if run_id:
                 mlflow_run_ids[name] = run_id
