@@ -1,1 +1,1 @@
--- Surgery ML schema - tables will be added here
+-- Surgery ML application schema - tables will be added here

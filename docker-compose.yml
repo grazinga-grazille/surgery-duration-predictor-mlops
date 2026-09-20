@@ -1,9 +1,12 @@
-# Local stack: Postgres + MinIO + Streamlit + FastAPI.
+# Local stack: Postgres + MinIO + MLflow + Streamlit + FastAPI.
 # Usage:
 #   cp .env.example .env   # then edit passwords
-#   docker compose up -d
-#   docker compose up -d postgres minio   # infra only
+#   docker compose up -d postgres minio minio-init mlflow
 #   docker compose ps
+#
+# Existing Postgres volumes: create the MLflow DB once manually:
+#   docker exec -it surgery_postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+#     -c 'CREATE DATABASE mlflow OWNER CURRENT_USER;'
 
 services:
   postgres:
@@ -13,7 +16,8 @@ services:
       - .env
     volumes:
       - ./volumes/postgres:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./db/02_create_mlflow_db.sh:/docker-entrypoint-initdb.d/02_create_mlflow_db.sh:ro
     ports:
       - "5432:5432"
     healthcheck:
@@ -46,6 +50,63 @@ services:
     networks:
       - surgery_network
     restart: always
+
+  # Create MLflow artifact bucket (and any others) on startup
+  minio-init:
+    image: quay.io/minio/mc:latest
+    container_name: surgery_minio_init
+    env_file:
+      - .env
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Waiting for MinIO...';
+      sleep 5;
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+      mc mb -p local/$${MLFLOW_ARTIFACT_BUCKET:-mlflow-artifacts} || true;
+      mc mb -p local/$${MINIO_BUCKET:-surgery-models} || true;
+      exit 0;
+      "
+    networks:
+      - surgery_network
+    restart: "no"
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: services/mlflow/Dockerfile
+    container_name: surgery_mlflow
+    env_file:
+      - .env
+    environment:
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_DEFAULT_REGION: us-east-1
+    command:
+      - mlflow
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --backend-store-uri
+      - postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/mlflow
+      - --default-artifact-root
+      - s3://${MLFLOW_ARTIFACT_BUCKET:-mlflow-artifacts}/
+    ports:
+      - "${MLFLOW_PORT:-5000}:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - surgery_network
+    restart: unless-stopped
 
   streamlit:
     build:

@@ -220,6 +220,7 @@ def tune_model(
     n_trials: int | None = None,
     tuning_cfg: dict[str, Any] | None = None,
     show_progress: bool = True,
+    log_mlflow: bool = True,
 ) -> dict[str, Any]:
     """Run an Optuna study for one model family and evaluate on held-out test."""
     cfg = dict(DEFAULT_TUNING_CFG)
@@ -245,53 +246,125 @@ def tune_model(
 
     early_stopping = int(cfg["early_stopping_rounds"])
 
+    from surgery_duration_predictor.mlflow_logging import (
+        EXPERIMENT_TUNE,
+        _base_tags,
+        log_tune_best,
+        log_tune_trial,
+        setup_tracking,
+        start_run,
+    )
+
+    use_mlflow = log_mlflow and setup_tracking()
+
     def objective(trial: optuna.Trial) -> float:
-        if kind == "random_forest":
-            return _rf_objective(trial, split, seed)
-        return _xgb_objective(trial, split, seed, early_stopping)
+        try:
+            if kind == "random_forest":
+                mae = _rf_objective(trial, split, seed)
+            else:
+                mae = _xgb_objective(trial, split, seed, early_stopping)
+            pruned = False
+        except optuna.TrialPruned:
+            # Still log the reported value if available
+            if use_mlflow and trial.params:
+                intermediate = trial.intermediate_values
+                mae_logged = float(intermediate.get(0, float("nan")))
+                if mae_logged == mae_logged:  # not NaN
+                    log_tune_trial(
+                        model_family=kind,
+                        trial_number=trial.number,
+                        params=dict(trial.params),
+                        valid_mae=mae_logged,
+                        pruned=True,
+                    )
+            raise
 
-    study.optimize(
-        objective,
-        n_trials=int(cfg["n_trials"]),
-        show_progress_bar=show_progress,
-    )
+        if use_mlflow:
+            log_tune_trial(
+                model_family=kind,
+                trial_number=trial.number,
+                params=dict(trial.params),
+                valid_mae=float(mae),
+                pruned=pruned,
+            )
+        return mae
 
-    best_params = dict(study.best_params)
+    mlflow_run_id: str | None = None
 
-    # Refit on train+valid with final feature pipeline; score on untouched test
-    model = _build_best_model(kind, best_params, seed, early_stopping)
-    if kind == "xgboost":
-        # For final fit without a valid set for early stopping, drop it and use
-        # the tuned n_estimators (Optuna already selected a budget).
-        final_params = dict(best_params)
-        model = XGBRegressor(
-            **final_params,
-            objective="reg:squarederror",
-            random_state=seed,
-            n_jobs=-1,
-            tree_method="hist",
+    def _run_study_and_finalize() -> dict[str, Any]:
+        nonlocal mlflow_run_id
+        study.optimize(
+            objective,
+            n_trials=int(cfg["n_trials"]),
+            show_progress_bar=show_progress,
         )
-        model.fit(split["X_train_valid"], split["y_train_valid"])
-    else:
-        model.fit(split["X_train_valid"], split["y_train_valid"])
 
-    pred_test = model.predict(split["X_test_final"])
-    test_metrics = _test_metrics(
-        split["y_test_final"], pred_test, split["booked_test"]
-    )
+        best_params = dict(study.best_params)
 
-    return {
-        "kind": kind,
-        "study": study,
-        "best_params": best_params,
-        "best_valid_mae": float(study.best_value),
-        "test_metrics": test_metrics,
-        "n_train": split["n_train"],
-        "n_valid": split["n_valid"],
-        "n_test": split["n_test"],
-        "model": model,
-        "config": cfg,
-    }
+        if kind == "xgboost":
+            final_params = dict(best_params)
+            model = XGBRegressor(
+                **final_params,
+                objective="reg:squarederror",
+                random_state=seed,
+                n_jobs=-1,
+                tree_method="hist",
+            )
+            model.fit(split["X_train_valid"], split["y_train_valid"])
+        else:
+            model = _build_best_model(kind, best_params, seed, early_stopping)
+            model.fit(split["X_train_valid"], split["y_train_valid"])
+
+        pred_test = model.predict(split["X_test_final"])
+        test_metrics = _test_metrics(
+            split["y_test_final"], pred_test, split["booked_test"]
+        )
+
+        result = {
+            "kind": kind,
+            "study": study,
+            "best_params": best_params,
+            "best_valid_mae": float(study.best_value),
+            "test_metrics": test_metrics,
+            "n_train": split["n_train"],
+            "n_valid": split["n_valid"],
+            "n_test": split["n_test"],
+            "model": model,
+            "config": cfg,
+        }
+        return result
+
+    if use_mlflow:
+        with start_run(
+            experiment=EXPERIMENT_TUNE,
+            run_name=f"tune_{kind}",
+            tags=_base_tags(model_family=kind, stage="tune_best"),
+        ) as parent:
+            result = _run_study_and_finalize()
+            # Persist JSON then attach to the parent run
+            json_path = save_tuning_result(result)
+            mlflow_run_id = log_tune_best(
+                model_family=kind,
+                best_params=result["best_params"],
+                best_valid_mae=result["best_valid_mae"],
+                test_metrics=result["test_metrics"],
+                config=result["config"],
+                n_train=result["n_train"],
+                n_valid=result["n_valid"],
+                n_test=result["n_test"],
+                tuning_json_path=json_path,
+                model=result["model"],
+            )
+            if parent is not None:
+                mlflow_run_id = parent.info.run_id
+            result["mlflow_run_id"] = mlflow_run_id
+            result["tuning_json_path"] = json_path
+            return result
+
+    result = _run_study_and_finalize()
+    result["mlflow_run_id"] = None
+    result["tuning_json_path"] = save_tuning_result(result)
+    return result
 
 
 def save_tuning_result(result: dict[str, Any], output_dir: Path | None = None) -> Path:

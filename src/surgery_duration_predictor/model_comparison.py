@@ -27,6 +27,7 @@ from surgery_duration_predictor.features import (
     TARGET_COL,
     build_features,
 )
+from surgery_duration_predictor.mlflow_logging import log_compare_run
 
 ModelName = Literal["linear", "random_forest", "xgboost"]
 
@@ -185,6 +186,7 @@ def compare_models(
     models: tuple[ModelName, ...] = ("linear", "xgboost", "random_forest"),
     random_state: int = 42,
     include_rf: bool = True,
+    log_mlflow: bool = True,
 ) -> dict[str, Any]:
     """Train selected models on one split and return metrics + LR diagnostics.
 
@@ -201,6 +203,26 @@ def compare_models(
 
     fitted: dict[str, Any] = {}
     summary_rows = []
+    mlflow_run_ids: dict[str, str] = {}
+
+    default_params: dict[str, dict] = {
+        "linear": {"model": "LinearRegression", "scaled_features": True},
+        "xgboost": {
+            "n_estimators": 400,
+            "max_depth": 6,
+            "learning_rate": 0.05,
+            "subsample": 0.8,
+            "colsample_bytree": 0.8,
+            "min_child_weight": 5,
+            "reg_lambda": 1.0,
+            "random_state": random_state,
+        },
+        "random_forest": {
+            "n_estimators": 200,
+            "random_state": random_state,
+            "n_jobs": -1,
+        },
+    }
 
     for name in models:
         if name == "linear":
@@ -233,5 +255,23 @@ def compare_models(
         }
         summary_rows.append({"model": name, **stats})
 
+        if log_mlflow:
+            run_id = log_compare_run(
+                model_family=name,
+                metrics=stats,
+                params={**default_params.get(name, {}), "random_state": random_state},
+                n_train=len(split["train_df"]),
+                n_test=len(split["test_df"]),
+                diagnostics=out.get("diagnostics"),
+                diagnostics_text=out.get("diagnostics_text"),
+            )
+            if run_id:
+                mlflow_run_ids[name] = run_id
+
     summary = pd.DataFrame(summary_rows)
-    return {"split": split, "models": fitted, "summary": summary}
+    return {
+        "split": split,
+        "models": fitted,
+        "summary": summary,
+        "mlflow_run_ids": mlflow_run_ids,
+    }
