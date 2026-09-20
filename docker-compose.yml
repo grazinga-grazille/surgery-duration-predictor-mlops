@@ -84,18 +84,6 @@ services:
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
       AWS_DEFAULT_REGION: us-east-1
-    # URL-encode user/password so special chars (@, :, /, #) don't break the URI
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - >
-        BACKEND_URI=$$(python -c "import os, urllib.parse as u;
-        print('postgresql://' + u.quote_plus(os.environ['POSTGRES_USER']) + ':' +
-        u.quote_plus(os.environ['POSTGRES_PASSWORD']) + '@postgres:5432/mlflow')") &&
-        exec mlflow server
-        --host 0.0.0.0
-        --port 5000
-        --backend-store-uri "$$BACKEND_URI"
-        --default-artifact-root "s3://$${MLFLOW_ARTIFACT_BUCKET:-mlflow-artifacts}/"
     ports:
       - "${MLFLOW_PORT:-5000}:5000"
     depends_on:
