@@ -12,11 +12,17 @@ Run from repo root:
   uv run uvicorn main:app --app-dir services/fastapi --reload
 """
 
+from pathlib import Path
+
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 
 from predictor import predict
 from schemas import PredictionRequest, PredictionResponse
 from surgery_duration_predictor.serving import load_serving_artifacts
+
+# Load repo-root .env when running uvicorn on the host (Compose injects env itself).
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 app = FastAPI(
     title="Surgery Duration Predictor",

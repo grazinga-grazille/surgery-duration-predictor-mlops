@@ -4,7 +4,7 @@ FastAPI uses this when ``MLFLOW_TRACKING_URI`` is set together with either:
 
 - ``MLFLOW_MODEL_URI`` — e.g. ``runs:/<run_id>/model``
 - ``MLFLOW_SERVING_MODEL_FAMILY`` — e.g. ``xgboost`` / ``random_forest``
-  (resolves the latest finished compare run for that family)
+  (resolves the latest finished compare run for that family that has ``features/``)
 
 Each compare run is expected to store:
 
@@ -39,6 +39,14 @@ def _parse_run_id_from_model_uri(model_uri: str) -> str | None:
     return rest.split("/", 1)[0]
 
 
+def _run_has_features(client: Any, run_id: str) -> bool:
+    try:
+        paths = {a.path for a in client.list_artifacts(run_id)}
+    except Exception:
+        return False
+    return "features" in paths
+
+
 def resolve_serving_run_id() -> tuple[str, str]:
     """Return ``(run_id, model_family)`` for the model FastAPI should serve."""
     if not setup_tracking():
@@ -53,6 +61,11 @@ def resolve_serving_run_id() -> tuple[str, str]:
         if not run_id:
             raise ValueError(
                 f"MLFLOW_MODEL_URI must look like runs:/<run_id>/model, got {explicit!r}"
+            )
+        if not _run_has_features(client, run_id):
+            raise RuntimeError(
+                f"Run {run_id} has no features/ artifacts. "
+                "Re-run: uv run scripts/compare_models.py --skip-rf"
             )
         run = client.get_run(run_id)
         family = run.data.tags.get("model_family", "unknown")
@@ -69,14 +82,17 @@ def resolve_serving_run_id() -> tuple[str, str]:
             f"tags.model_family = '{family}' AND attributes.status = 'FINISHED'"
         ),
         order_by=["attributes.start_time DESC"],
-        max_results=1,
+        max_results=20,
     )
-    if not runs:
-        raise RuntimeError(
-            f"No finished compare run for model_family={family!r} "
-            f"in experiment {EXPERIMENT_COMPARE!r}"
-        )
-    return runs[0].info.run_id, family
+    for run in runs:
+        rid = run.info.run_id
+        if _run_has_features(client, rid):
+            return rid, family
+
+    raise RuntimeError(
+        f"No finished {family!r} compare run with features/ artifacts in "
+        f"{EXPERIMENT_COMPARE!r}. Re-run: uv run scripts/compare_models.py --skip-rf"
+    )
 
 
 def _load_model(model_uri: str, model_family: str) -> Any:
@@ -139,8 +155,8 @@ def load_serving_artifacts() -> dict[str, Any]:
 
     run_id, family = resolve_serving_run_id()
     model_uri = os.getenv("MLFLOW_MODEL_URI", "").strip() or f"runs:/{run_id}/model"
-    model = _load_model(model_uri, family)
     features = _load_feature_bundle(run_id)
+    model = _load_model(model_uri, family)
     return {
         "model": model,
         "tfidf": features["tfidf"],

@@ -133,7 +133,7 @@ def _log_model_artifact(model_family: str, model: Any) -> None:
             if model_family == "xgboost":
                 import mlflow.xgboost
 
-                mlflow.xgboost.save_model(model, str(local_dir))
+                mlflow.xgboost.save_model(model, str(local_dir), model_format="ubj")
             else:
                 # linear / random_forest / other sklearn estimators
                 mlflow.sklearn.save_model(model, str(local_dir))
